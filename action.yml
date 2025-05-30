@@ -1,0 +1,93 @@
+name: pr-validate-and-merge
+description: "bumps, squashes & merges PRs using semantic-release"
+author: broadsheet.technology
+branding:
+  icon: "git-merge"
+  color: "blue"
+
+inputs:
+  github-token:
+    description: "GitHub token for authentication."
+    required: true
+
+outputs:
+  release-version:
+    description: "The version of the release created by semantic-release."
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  validate-pr:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Validate PR is rebased on main
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor origin/main HEAD; then
+            echo "PR is not rebased on top of main."
+            exit 1
+          fi
+
+      - name: Validate commit messages using commitlint
+        run: |
+          npx commitlint --from=origin/main --to=HEAD
+
+  merge-pr:
+    if: github.event.comment.body == '/merge'
+    needs: validate-pr
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Validate PR is rebased on main
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor origin/main HEAD; then
+            echo "PR is not rebased on top of main."
+            exit 1
+          fi
+
+      - name: Validate commit messages using commitlint
+        run: |
+          npx commitlint --from=origin/main --to=HEAD
+
+      - name: Calculate release version using semantic-release
+        id: calculate_version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(npx semantic-release --dry-run | grep -oP '(?<=The next release version is )\d+\.\d+\.\d+')
+          echo "version=${VERSION}" >> $GITHUB_ENV
+        outputs:
+          release-version: ${{ env.version }}
+
+      - name: Bump version in package.json
+        run: |
+          jq --arg version "${{ env.version }}" '.version = $version' package.json > package.json.tmp && mv package.json.tmp package.json
+          git config user.name "🤖"
+          git config user.email "git@broadsheet.technology"
+          git add package.json
+          git commit -m "chore: bump version to ${{ env.version }}"
+          git push origin HEAD:${{ github.head_ref }}
+
+      - name: Generate commit message
+        id: generate_commit_message
+        run: |
+          VERSION=$(npx semantic-release --dry-run | grep -oP '(?<=The next release version is )\d+\.\d+\.\d+')
+          PR_TITLE=$(gh pr view ${{ github.event.issue.number }} --json title -q .title)
+          echo "message=v${VERSION} - ${PR_TITLE} (#${{ github.event.issue.number }})" >> $GITHUB_ENV
+
+      - name: Squash and merge PR
+        run: gh pr merge ${{ github.event.issue.number }} --squash --body "${{ env.message }}"
+
+      - name: Delete branch
+        run: gh pr close ${{ github.event.issue.number }} --delete-branch
