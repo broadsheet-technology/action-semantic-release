@@ -35,7 +35,7 @@ runs:
     - name: Validate commit messages using commitlint
       shell: bash
       run: |
-        npx commitlint --from=origin/main --to=HEAD
+        npx -p commitlint --from=origin/main --to=HEAD
 
     - name: Calculate release version using semantic-release
       id: calculate_version
