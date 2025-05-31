@@ -67,10 +67,10 @@ runs:
         PR_TITLE=$(gh pr view ${{ github.event.pull_request.id }} --json title -q .title)
         echo "message=v${VERSION} - ${PR_TITLE} (#${{ github.event.issue.number }})" >> "$GITHUB_OUTPUT"
 
-    - name: Squash and merge PR
-      shell: bash
-      run: gh pr merge ${{ github.event.pull_request.id }} --squash --body "${{ steps.generate_commit_message.outputs.message }}"
+    #- name: Squash and merge PR
+    #  shell: bash
+    #  run: gh pr merge ${{ github.event.pull_request.id }} --squash --body "${{ steps.generate_commit_message.outputs.message }}"
 
-    - name: Delete branch
-      shell: bash
-      run: gh pr close ${{ github.event.pull_request.id }} --delete-branch
+    #- name: Delete branch
+    #  shell: bash
+    #  run: gh pr close ${{ github.event.pull_request.id }} --delete-branch
