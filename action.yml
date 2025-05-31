@@ -63,7 +63,7 @@ jobs:
       - name: Calculate release version using semantic-release
         id: calculate_version
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ inputs.github-token }}
         run: |
           VERSION=$(npx semantic-release --dry-run | grep -oP '(?<=The next release version is )\d+\.\d+\.\d+')
           echo "version=${VERSION}" >> $GITHUB_ENV
@@ -72,22 +72,22 @@ jobs:
 
       - name: Bump version in package.json
         run: |
-          jq --arg version "${{ env.version }}" '.version = $version' package.json > package.json.tmp && mv package.json.tmp package.json
+          jq --arg version "${{ steps.calculate_version.outputs.release-version }}" '.version = $version' package.json > package.json.tmp && mv package.json.tmp package.json
           git config user.name "🤖"
           git config user.email "git@broadsheet.technology"
           git add package.json
-          git commit -m "chore: bump version to ${{ env.version }}"
+          git commit -m "chore: bump version to ${{ steps.calculate_version.outputs.release-version }}"
           git push origin HEAD:${{ github.head_ref }}
 
       - name: Generate commit message
         id: generate_commit_message
         run: |
           VERSION=$(npx semantic-release --dry-run | grep -oP '(?<=The next release version is )\d+\.\d+\.\d+')
-          PR_TITLE=$(gh pr view ${{ github.event.issue.number }} --json title -q .title)
+          PR_TITLE=$(gh pr view ${{ github.event.pull_request.number }} --json title -q .title)
           echo "message=v${VERSION} - ${PR_TITLE} (#${{ github.event.issue.number }})" >> $GITHUB_ENV
 
       - name: Squash and merge PR
-        run: gh pr merge ${{ github.event.issue.number }} --squash --body "${{ env.message }}"
+        run: gh pr merge ${{ github.event.pull_request.number }} --squash --body "${{ steps.generate_commit_message.outputs.message }}"
 
       - name: Delete branch
-        run: gh pr close ${{ github.event.issue.number }} --delete-branch
+        run: gh pr close ${{ github.event.pull_request.number }} --delete-branch
