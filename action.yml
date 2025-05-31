@@ -22,6 +22,7 @@ runs:
       uses: actions/checkout@v3
       with:
         token: ${{ inputs.github-token }}
+        ref: ${{ github.event.pull_request.head.ref }}
 
     - name: Validate PR is rebased on main
       shell: bash
@@ -43,7 +44,7 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
-        VERSION=$(npx semantic-release --dry-run | grep -oP '(?<=The next release version is )\d+\.\d+\.\d+')
+        VERSION=$(npx semantic-release --dry-run --branch ${{ github.head_ref }} | grep -oP '(?<=The next release version is )\d+\.\d+\.\d+')
         echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
     - name: Bump version in package.json
