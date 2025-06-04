@@ -38,6 +38,12 @@ runs:
         echo "headRefName=$HEAD_REF_NAME" >> "$GITHUB_OUTPUT"
         echo "title=$PR_TITLE" >> "$GITHUB_OUTPUT"
 
+    - name: Switch to PR branch
+      shell: bash
+      run: |
+        git fetch origin ${{ steps.fetch_pr_details.outputs.headRefName }}
+        git checkout ${{ steps.fetch_pr_details.outputs.headRefName }}
+
     - name: Validate PR is rebased on main
       shell: bash
       run: |
