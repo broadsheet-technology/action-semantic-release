@@ -9,6 +9,9 @@ inputs:
   github-token:
     description: "GitHub token for authentication."
     required: true
+  pr-id:
+    description: "Pull Request ID."
+    required: true
 
 outputs:
   release-version:
@@ -18,11 +21,22 @@ outputs:
 runs:
   using: "composite"
   steps:
+    - name: Fetch PR details
+      id: fetch_pr_details
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        HEAD_REF_NAME=$(gh pr view ${{ inputs.pr-id }} --json headRefName -q .headRefName)
+        PR_TITLE=$(gh pr view ${{ inputs.pr-id }} --json title -q .title)
+        echo "headRefName=$HEAD_REF_NAME" >> "$GITHUB_OUTPUT"
+        echo "title=$PR_TITLE" >> "$GITHUB_OUTPUT"
+
     - name: Checkout code
       uses: actions/checkout@v3
       with:
         token: ${{ inputs.github-token }}
-        ref: ${{ github.event.pull_request.head.ref }}
+        ref: ${{ steps.fetch_pr_details.outputs.headRefName }}
 
     - name: Validate PR is rebased on main
       shell: bash
@@ -44,7 +58,7 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
-        VERSION=$(npx semantic-release --dry-run --branch ${{ github.event.pull_request.head.ref }} | grep -oP '(?<=The next release version is )\d+\.\d+\.\d+')
+        VERSION=$(npx semantic-release --dry-run --branch ${{ steps.fetch_pr_details.outputs.headRefName }} | grep -oP '(?<=The next release version is )\d+\.\d+\.\d+')
         echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
     - name: Bump version in package.json
@@ -57,7 +71,7 @@ runs:
         git config user.email "git@broadsheet.technology"
         git add package.json
         git commit -m "chore: bump version to $VERSION"
-        git push origin HEAD:${{ github.head_ref }}
+        git push origin HEAD:${{ steps.fetch_pr_details.outputs.headRefName }}
 
     - name: Generate commit message
       id: generate_commit_message
@@ -65,13 +79,12 @@ runs:
       env:
         VERSION: ${{ steps.calculate_version.outputs.version }}
       run: |
-        PR_TITLE=$(gh pr view ${{ github.event.pull_request.id }} --json title -q .title)
-        echo "message=v${VERSION} - ${PR_TITLE} (#${{ github.event.issue.number }})" >> "$GITHUB_OUTPUT"
+        echo "message=v${VERSION} - ${{ steps.fetch_pr_details.outputs.title }} (#${{ inputs.pr-id }})" >> "$GITHUB_OUTPUT"
 
     #- name: Squash and merge PR
     #  shell: bash
-    #  run: gh pr merge ${{ github.event.pull_request.id }} --squash --body "${{ steps.generate_commit_message.outputs.message }}"
+    #  run: gh pr merge ${{ inputs.pr-id }} --squash --body "${{ steps.generate_commit_message.outputs.message }}"
 
     #- name: Delete branch
     #  shell: bash
-    #  run: gh pr close ${{ github.event.pull_request.id }} --delete-branch
+    #  run: gh pr close ${{ inputs.pr-id }} --delete-branch
