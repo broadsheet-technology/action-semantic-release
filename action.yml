@@ -21,6 +21,12 @@ outputs:
 runs:
   using: "composite"
   steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        token: ${{ inputs.github-token }}
+        ref: ${{ steps.fetch_pr_details.outputs.headRefName }}
+
     - name: Fetch PR details
       id: fetch_pr_details
       shell: bash
@@ -31,12 +37,6 @@ runs:
         PR_TITLE=$(gh pr view ${{ inputs.pr-id }} --json title -q .title)
         echo "headRefName=$HEAD_REF_NAME" >> "$GITHUB_OUTPUT"
         echo "title=$PR_TITLE" >> "$GITHUB_OUTPUT"
-
-    - name: Checkout code
-      uses: actions/checkout@v3
-      with:
-        token: ${{ inputs.github-token }}
-        ref: ${{ steps.fetch_pr_details.outputs.headRefName }}
 
     - name: Validate PR is rebased on main
       shell: bash
