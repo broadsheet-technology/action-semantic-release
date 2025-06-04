@@ -64,7 +64,9 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
-        VERSION=$(npx semantic-release --dry-run --branches="*" --branch ${{ steps.fetch_pr_details.outputs.headRefName }})
+        OUTPUT=$(npx semantic-release --dry-run --branches="*" --branch ${{ steps.fetch_pr_details.outputs.headRefName }})
+        echo "$OUTPUT"
+        VERSION=$(echo "$OUTPUT" | grep -oP '(?<=The next release version is )\d+\.\d+\.\d+')
         echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
     - name: Bump version in package.json
