@@ -1,5 +1,5 @@
 name: pr-validate-and-merge
-description: "bumps, squashes & merges PRs using semantic-release"
+description: "bumps, squashes & merges PRs by reading version-bump labels"
 author: broadsheet.technology
 branding:
   icon: "git-merge"
@@ -15,8 +15,8 @@ inputs:
 
 outputs:
   release-version:
-    description: "The version of the release created by semantic-release."
-    value: ${{ steps.calculate_version.outputs.version }}
+    description: "The new semver version computed from PR labels."
+    value: ${{ steps.determine_version.outputs.bumped_version }}
 
 runs:
   using: "composite"
@@ -25,24 +25,28 @@ runs:
       uses: actions/checkout@v3
       with:
         token: ${{ inputs.github-token }}
-        ref: ${{ steps.fetch_pr_details.outputs.headRefName }}
+        # We’ll override `ref:` after we know the PR head branch
+        ref: main
 
-    - name: Fetch PR details
+    - name: Fetch PR details (head branch and title)
       id: fetch_pr_details
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
-        HEAD_REF_NAME=$(gh pr view ${{ inputs.pr-id }} --json headRefName -q .headRefName)
-        PR_TITLE=$(gh pr view ${{ inputs.pr-id }} --json title -q .title)
+        # Retrieve headRefName and title so we can check out the correct branch
+        HEAD_REF_NAME=$(gh pr view ${{ inputs.pr-id }} \
+          --json headRefName -q .headRefName)
+        PR_TITLE=$(gh pr view ${{ inputs.pr-id }} \
+          --json title -q .title)
         echo "headRefName=$HEAD_REF_NAME" >> "$GITHUB_OUTPUT"
         echo "title=$PR_TITLE" >> "$GITHUB_OUTPUT"
 
     - name: Switch to PR branch
       shell: bash
       run: |
-        git fetch origin ${{ steps.fetch_pr_details.outputs.headRefName }}
-        git checkout ${{ steps.fetch_pr_details.outputs.headRefName }}
+        git fetch origin "${{ steps.fetch_pr_details.outputs.headRefName }}"
+        git checkout "${{ steps.fetch_pr_details.outputs.headRefName }}"
 
     - name: Validate PR is rebased on main
       shell: bash
@@ -53,41 +57,36 @@ runs:
           exit 1
         fi
 
-    - name: Validate commit messages using commitlint
-      shell: bash
-      run: |
-        npx -p commitlint --from=origin/main --to=HEAD
-
-    - name: Calculate release version using semantic-release
-      id: calculate_version
+    - name: Determine new version from PR labels
+      id: determine_version
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
-        OUTPUT=$(npx semantic-release --dry-run --branches="*" --branch ${{ steps.fetch_pr_details.outputs.headRefName }})
-        echo "$OUTPUT"
-        VERSION=$(echo "$OUTPUT" | grep -oP '(?<=The next release version is )\d+\.\d+\.\d+')
-        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        # (Assumes you have cloned the repo root, and `package.json` is present)
+        ./scripts/bump-version.sh "${{ inputs.pr-id }}"
 
     - name: Bump version in package.json
       shell: bash
       env:
-        VERSION: ${{ steps.calculate_version.outputs.version }}
+        VERSION: ${{ steps.determine_version.outputs.bumped_version }}
       run: |
-        jq --arg version "$VERSION" '.version = $version' package.json > package.json.tmp && mv package.json.tmp package.json
+        jq --arg version "$VERSION" '.version = $version' package.json \
+          > package.json.tmp && mv package.json.tmp package.json
         git config user.name "🤖"
         git config user.email "git@broadsheet.technology"
         git add package.json
-        git commit -m "chore: bump version to $VERSION"
-        git push origin HEAD:${{ steps.fetch_pr_details.outputs.headRefName }}
+        git commit -m "bump $VERSION"
+        git push origin HEAD:"${{ steps.fetch_pr_details.outputs.headRefName }}"
 
     - name: Generate commit message
       id: generate_commit_message
       shell: bash
       env:
-        VERSION: ${{ steps.calculate_version.outputs.version }}
+        VERSION: ${{ steps.determine_version.outputs.bumped_version }}
       run: |
-        echo "message=v${VERSION} - ${{ steps.fetch_pr_details.outputs.title }} (#${{ inputs.pr-id }})" >> "$GITHUB_OUTPUT"
+        echo "message=v${VERSION} - ${{ steps.fetch_pr_details.outputs.title }} (#${{ inputs.pr-id }})" \
+          >> "$GITHUB_OUTPUT"
 
     #- name: Squash and merge PR
     #  shell: bash
