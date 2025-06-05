@@ -1,52 +1,58 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-# 1. Fetch all label names on this PR
-PR_ID="${1:?PR ID must be provided as first argument}"
-LABELS_JSON="$(gh pr view "$PR_ID" --json labels -q '.labels[].name')"
+PR_ID="${1:?Usage: $0 <pr-id>}"
 
-# 2. Determine which bump label is present
-#    We expect labels exactly named:
-#      version-bump/major
-#      version-bump/minor
-#      version-bump/patch
+# 1) Get all label names on the PR (one per line).
+LABELS="$(gh pr view "$PR_ID" --json labels -q '.labels[].name')"
+
+# 2) Determine which bump label is present.
 BUMP_TYPE=""
-if echo "$LABELS_JSON" | grep -qx "version-bump/major"; then
+if echo "$LABELS" | grep -qx "version-bump/major"; then
   BUMP_TYPE="major"
-elif echo "$LABELS_JSON" | grep -qx "version-bump/minor"; then
+elif echo "$LABELS" | grep -qx "version-bump/minor"; then
   BUMP_TYPE="minor"
-elif echo "$LABELS_JSON" | grep -qx "version-bump/patch"; then
+elif echo "$LABELS" | grep -qx "version-bump/patch"; then
   BUMP_TYPE="patch"
 else
-  echo "No version-bump label (major, minor, or patch) found on PR #$PR_ID."
+  echo "ERROR: no version-bump/major, version-bump/minor, or version-bump/patch label found on PR #$PR_ID."
   exit 1
 fi
 
-# 3. Read current version from package.json
-CURRENT_VERSION="$(jq -r '.version' package.json)"
-if [[ ! "$CURRENT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "package.json version ('$CURRENT_VERSION') is not semver-compatible."
+# 3) Read current version from package.json (e.g. "v0.1.18" or "0.1.18")
+RAW_VERSION="$(jq -r '.version' package.json)"
+
+# 4) Strip leading 'v' if present
+if [[ "$RAW_VERSION" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+  BARE_VERSION="${BASH_REMATCH[1]}"
+  PREFIX="v"
+elif [[ "$RAW_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+  BARE_VERSION="${BASH_REMATCH[1]}"
+  PREFIX=""
+else
+  echo "ERROR: package.json version ('$RAW_VERSION') is not semver-compatible (expected x.y.z or vx.y.z)."
   exit 1
 fi
 
-# 4. Split into MAJOR, MINOR, PATCH
-IFS='.' read -r MAJ MIN PATCH <<< "$CURRENT_VERSION"
+# 5) Split bare version into MAJOR, MINOR, PATCH
+IFS='.' read -r MAJ MIN PATCH <<< "$BARE_VERSION"
 
-# 5. Compute new version
+# 6) Compute the new bump
 case "$BUMP_TYPE" in
   major)
-    NEW_MAJOR=$((MAJ + 1))
-    NEW_VERSION="$NEW_MAJOR.0.0"
+    NEW_MAJ=$((MAJ + 1))
+    NEW_VER="${NEW_MAJ}.0.0"
     ;;
   minor)
-    NEW_MINOR=$((MIN + 1))
-    NEW_VERSION="$MAJ.$NEW_MINOR.0"
+    NEW_MIN=$((MIN + 1))
+    NEW_VER="${MAJ}.${NEW_MIN}.0"
     ;;
   patch)
-    NEW_PATCH=$((PATCH + 1))
-    NEW_VERSION="$MAJ.$MIN.$NEW_PATCH"
+    NEW_PAT=$((PATCH + 1))
+    NEW_VER="${MAJ}.${MIN}.${NEW_PAT}"
     ;;
 esac
 
-# 6. Emit the new version so that GitHub Actions steps can pick it up
-echo "bumped_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+# 7) Prepend the original prefix (e.g. "v") and export
+NEW_FULL_VERSION="${PREFIX}${NEW_VER}"
+echo "bumped_version=$NEW_FULL_VERSION" >> "$GITHUB_OUTPUT"
