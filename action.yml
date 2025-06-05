@@ -64,7 +64,7 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
         # (Assumes you have cloned the repo root, and `package.json` is present)
-        ./scripts/bump-version.sh "${{ inputs.pr-id }}"
+        bash "${{ github.action_path }}/scripts/bump-version.sh" "${{ inputs.pr-id }}"
 
     - name: Bump version in package.json
       shell: bash
