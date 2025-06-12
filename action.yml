@@ -12,6 +12,10 @@ inputs:
   pr-id:
     description: "Pull Request ID."
     required: true
+  dry-run:
+    description: "If true, only compute bumped version without committing or pushing."
+    required: false
+    default: "false"
 
 outputs:
   release-version:
@@ -25,7 +29,6 @@ runs:
       uses: actions/checkout@v3
       with:
         token: ${{ inputs.github-token }}
-        # We’ll override `ref:` after we know the PR head branch
         ref: main
 
     - name: Fetch PR details (head branch and title)
@@ -34,13 +37,10 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
-        # Retrieve headRefName and title so we can check out the correct branch
-        HEAD_REF_NAME=$(gh pr view ${{ inputs.pr-id }} \
-          --json headRefName -q .headRefName)
-        PR_TITLE=$(gh pr view ${{ inputs.pr-id }} \
-          --json title -q .title)
+        HEAD_REF_NAME=$(gh pr view ${{ inputs.pr-id }} --json headRefName -q .headRefName)
+        PR_TITLE=$(gh pr view ${{ inputs.pr-id }} --json title      -q .title)
         echo "headRefName=$HEAD_REF_NAME" >> "$GITHUB_OUTPUT"
-        echo "title=$PR_TITLE" >> "$GITHUB_OUTPUT"
+        echo "title=$PR_TITLE"           >> "$GITHUB_OUTPUT"
 
     - name: Switch to PR branch
       shell: bash
@@ -53,7 +53,7 @@ runs:
       run: |
         git fetch origin main
         if ! git merge-base --is-ancestor origin/main HEAD; then
-          echo "PR is not rebased on top of main."
+          echo "::error::PR is not rebased on top of main."
           exit 1
         fi
 
@@ -63,23 +63,32 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
-        # (Assumes you have cloned the repo root, and `package.json` is present)
         bash "${{ github.action_path }}/scripts/bump-version.sh" "${{ inputs.pr-id }}"
 
+    - name: Dry-run output
+      if: ${{ inputs.dry-run == 'true' }}
+      shell: bash
+      run: |
+        echo "🚧 dry-run mode: computed bumped version = ${{ steps.determine_version.outputs.bumped_version }}"
+        # export it so consumers can still pick it up
+        echo "release-version=${{ steps.determine_version.outputs.bumped_version }}" >> "$GITHUB_OUTPUT"
+
     - name: Bump version in package.json
+      if: ${{ inputs.dry-run != 'true' }}
       shell: bash
       env:
         VERSION: ${{ steps.determine_version.outputs.bumped_version }}
       run: |
-        jq --arg version "$VERSION" '.version = $version' package.json \
-          > package.json.tmp && mv package.json.tmp package.json
-        git config user.name "🤖"
+        jq --arg version "$VERSION" '.version = $version' package.json > package.json.tmp
+        mv package.json.tmp package.json
+        git config user.name  "🤖"
         git config user.email "git@broadsheet.technology"
         git add package.json
         git commit -m "bump $VERSION"
         git push origin HEAD:"${{ steps.fetch_pr_details.outputs.headRefName }}"
 
     - name: Generate commit message
+      if: ${{ inputs.dry-run != 'true' }}
       id: generate_commit_message
       shell: bash
       env:
@@ -88,10 +97,13 @@ runs:
         echo "message=v${VERSION} - ${{ steps.fetch_pr_details.outputs.title }} (#${{ inputs.pr-id }})" \
           >> "$GITHUB_OUTPUT"
 
+    # Squash & merge / delete-branch can live here, also gated on dry-run != true
     #- name: Squash and merge PR
+    #  if: ${{ inputs.dry-run != 'true' }}
     #  shell: bash
     #  run: gh pr merge ${{ inputs.pr-id }} --squash --body "${{ steps.generate_commit_message.outputs.message }}"
 
     #- name: Delete branch
+    #  if: ${{ inputs.dry-run != 'true' }}
     #  shell: bash
     #  run: gh pr close ${{ inputs.pr-id }} --delete-branch
